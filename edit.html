@@ -198,6 +198,75 @@ let videoInterval = null;
 let intervalDuration = 600;
 let currentAudio = null;
 
+// -----------------------------------------------
+// DRAG TO SWITCH FRAMES (active only when paused)
+// -----------------------------------------------
+let isDraggingFrame = false;
+let dragStartX = 0;
+let lastDragX = 0;
+let dragThreshold = 80; // pixels required to trigger change
+
+const videoWrapper = document.getElementById("video-wrapper");
+
+videoWrapper.addEventListener("mousedown", (e) => {
+  if (videoInterval) return; // disable during slideshow
+  isDraggingFrame = true;
+  dragStartX = e.clientX;
+  lastDragX = dragStartX;
+});
+
+videoWrapper.addEventListener("mousemove", (e) => {
+  if (!isDraggingFrame || videoInterval) return;
+
+  const dragDistance = e.clientX - lastDragX;
+
+  // Swipe right → previous frame
+  if (dragDistance > dragThreshold) {
+    showPreviousFrame();
+    lastDragX = e.clientX; // reset to allow continuous dragging
+  }
+
+  // Swipe left → next frame
+  if (dragDistance < -dragThreshold) {
+    showNextFrame();
+    lastDragX = e.clientX;
+  }
+});
+
+videoWrapper.addEventListener("mouseup", () => {
+  isDraggingFrame = false;
+});
+
+videoWrapper.addEventListener("mouseleave", () => {
+  isDraggingFrame = false;
+});
+
+// Functions to switch frames manually
+function showFrame(index) {
+  const outputFrame = document.getElementById(`output-${index}`);
+  if (!outputFrame) return;
+
+  const videoScreen = document.getElementById('video-screen');
+  const doc = videoScreen.contentDocument || videoScreen.contentWindow.document;
+  const editorDoc = outputFrame.contentDocument || outputFrame.contentWindow.document;
+
+  doc.open();
+  doc.write(editorDoc.documentElement.outerHTML);
+  doc.close();
+}
+
+function showNextFrame() {
+  if (editorCount === 0) return;
+  videoIndex = (videoIndex + 1) % editorCount;
+  showFrame(videoIndex);
+}
+
+function showPreviousFrame() {
+  if (editorCount === 0) return;
+  videoIndex = (videoIndex - 1 + editorCount) % editorCount;
+  showFrame(videoIndex);
+}
+
 // Add editor
 function addEditor() {
   const container = document.getElementById('editorContainer');
@@ -361,7 +430,46 @@ document.getElementById("fullscreen-btn").onclick = function () {
 };
 
 addEditor();
-</script>
 
+// Arrow key navigation for video frames
+document.addEventListener('keydown', (e) => {
+  const totalEditors = editorCount;
+  if (totalEditors === 0) return;
+
+  // Pause auto slideshow while manually navigating
+  if (videoInterval) pauseVideoScreen();
+
+  if (e.key === "ArrowRight") {
+    // Next frame
+    videoIndex = (videoIndex + 1) % totalEditors;
+    updateVideoScreen(videoIndex);
+  } else if (e.key === "ArrowLeft") {
+    // Previous frame
+    videoIndex = (videoIndex - 1 + totalEditors) % totalEditors;
+    updateVideoScreen(videoIndex);
+  }
+});
+
+// Function to update video-screen to a specific editor frame
+function updateVideoScreen(index) {
+  const outputFrame = document.getElementById(`output-${index}`);
+  if (!outputFrame) return;
+  
+  const videoScreen = document.getElementById('video-screen');
+  const doc = videoScreen.contentDocument || videoScreen.contentWindow.document;
+  const editorDoc = outputFrame.contentDocument || outputFrame.contentWindow.document;
+
+  doc.open();
+  doc.write(editorDoc.documentElement.outerHTML);
+  doc.close();
+
+  // Pause all audio in the iframe except the active one
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  try {
+    const audios = videoScreen.contentWindow.document.querySelectorAll('audio');
+    audios.forEach(a => { a.play().catch(() => {}); currentAudio = a; });
+  } catch (e) {}
+}
+</script>
 </body>
 </html>

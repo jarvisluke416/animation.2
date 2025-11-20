@@ -179,6 +179,328 @@ textarea {
 <div id="video-wrapper" class="video-screen-container">
   <iframe id="video-screen" allowfullscreen></iframe>
 </div>
+  <style>
+    /*body {
+      font-family: sans-serif;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }*/
+    button {
+      margin: 5px 5px 5px 0;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+
+      gap: 20px;
+    }
+    .panel-wrapper {
+      background: white;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      position: relative;
+    }
+    .accordion-toggle {
+      margin-top: 10px;
+      width: 100%;
+      padding: 10px;
+      background: #007BFF;
+      color: white;
+      border: none;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .accordion-content {
+      display: none;
+      margin-top: 20px;
+    }
+    .field {
+      margin-bottom: 10px;
+      color: limegreen;
+    }
+    label {
+      font-weight: bold;
+      display: block;
+    }
+    textarea, select, input[type="range"], input[type="number"] {
+      width: 100%;
+    }
+    .delete-btn {
+      position: absolute;
+      top: 32px;
+      right: 10px;
+      height: 32px;
+      background: red;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    #uploadBoard {
+      display: none;
+    }
+    label[for="uploadBoard"] {
+      background: #007BFF;
+      color: white;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      display: inline-block;
+    }
+    #timer {
+      font-weight: bold;
+      font-size: 18px;
+      margin-left: 10px;
+    }
+  </style>
+
+
+  <button id="addPanel">➕ Add Panel</button>
+  <button id="playAll">▶️ Play All</button><span id="timer">⏱️ 0.0s</span>
+  <button id="downloadBoard">⬇️ Download Board</button>
+  <input type="file" id="uploadBoard" accept=".json">
+  <label for="uploadBoard">⬆️ Upload Board</label>
+
+  <div class="panel-grid" id="panelContainer"></div>
+
+  <script>
+    const synth = window.speechSynthesis;
+    let voices = [];
+    let panelCount = 0;
+    let timerInterval;
+    let timer = 0;
+
+    function listVoices() {
+      voices = synth.getVoices();
+
+      document.querySelectorAll(".panel-wrapper").forEach(panel => {
+        const index = panel.getAttribute("data-index");
+
+        // Save current settings
+        const selectedVoice = document.getElementById(`voice-${index}`).selectedOptions[0]?.getAttribute("data-name");
+        const volume = document.getElementById(`volume-${index}`).value;
+        const pitch = document.getElementById(`pitch-${index}`).value;
+        const rate = document.getElementById(`rate-${index}`).value;
+        const delay = document.getElementById(`delay-${index}`).value;
+
+        const voiceSelect = document.getElementById(`voice-${index}`);
+        voiceSelect.innerHTML = voices.map(v =>
+          `<option data-name="${v.name}">${v.name} (${v.lang})</option>`
+        ).join('');
+
+        // Restore voice
+        if (selectedVoice) {
+          for (let option of voiceSelect.options) {
+            if (option.getAttribute("data-name") === selectedVoice) {
+              option.selected = true;
+              break;
+            }
+          }
+        }
+
+        // Restore other settings
+        document.getElementById(`volume-${index}`).value = volume;
+        document.getElementById(`pitch-${index}`).value = pitch;
+        document.getElementById(`rate-${index}`).value = rate;
+        document.getElementById(`delay-${index}`).value = delay;
+      });
+    }
+
+    function createPanel(index) {
+      const container = document.getElementById("panelContainer");
+      const panel = document.createElement("div");
+      panel.className = "panel-wrapper";
+      panel.setAttribute("data-index", index);
+
+      panel.innerHTML = `
+        <button class="delete-btn">DELETE</button>
+        <textarea id="say-${index}" rows="1" placeholder="Enter text to speak..."></textarea><br>
+        <input type="button" id="speak-${index}" value="Speak">
+        <button id="toggleAccordion-${index}" class="accordion-toggle">Show Settings ▼</button>
+        <div id="accordionContent-${index}" class="accordion-content">
+          <div class="field">
+            <label for="voice-${index}">Voice</label>
+            <select id="voice-${index}" class="voice-select" data-index="${index}"></select>
+          </div>
+          <div class="field">
+            <label for="volume-${index}">Volume</label>
+            <input type="range" id="volume-${index}" min="0" max="1" step="0.01" value="0.5">
+          </div>
+          <div class="field">
+            <label for="pitch-${index}">Pitch</label>
+            <input type="range" id="pitch-${index}" min="0" max="2" step="0.01" value="1">
+          </div>
+          <div class="field">
+            <label for="rate-${index}">Rate</label>
+            <input type="range" id="rate-${index}" min="0.1" max="10" step="0.1" value="1">
+          </div>
+          <div class="field">
+            <label for="delay-${index}">Extra Delay (seconds)</label>
+            <input type="number" id="delay-${index}" min="0" step="0.1" value="0">
+          </div>
+        </div>
+      `;
+      container.appendChild(panel);
+
+      document.getElementById(`toggleAccordion-${index}`).addEventListener("click", () => {
+        const content = document.getElementById(`accordionContent-${index}`);
+        const btn = document.getElementById(`toggleAccordion-${index}`);
+        content.style.display = content.style.display === "block" ? "none" : "block";
+        btn.textContent = content.style.display === "block" ? "Hide Settings ▲" : "Show Settings ▼";
+      });
+
+      document.getElementById(`speak-${index}`).addEventListener("click", () => {
+        const sayText = document.getElementById(`say-${index}`).value;
+        const utter = new SpeechSynthesisUtterance(sayText);
+        utter.voice = voices.find(v => v.name === document.getElementById(`voice-${index}`).selectedOptions[0]?.getAttribute("data-name"));
+        utter.volume = parseFloat(document.getElementById(`volume-${index}`).value);
+        utter.pitch = parseFloat(document.getElementById(`pitch-${index}`).value);
+        utter.rate = parseFloat(document.getElementById(`rate-${index}`).value);
+        synth.speak(utter);
+      });
+
+      panel.querySelector(".delete-btn").addEventListener("click", () => {
+        panel.remove();
+      });
+
+      listVoices(); // populate and preserve voices/settings
+    }
+
+    function playAllPanels() {
+      const panels = document.querySelectorAll(".panel-wrapper");
+      let index = 0;
+      timer = 0;
+      document.getElementById("timer").textContent = `⏱️ 0.0s`;
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        timer += 0.1;
+        document.getElementById("timer").textContent = `⏱️ ${timer.toFixed(1)}s`;
+      }, 100);
+
+      function speakNext() {
+        if (index >= panels.length) {
+          clearInterval(timerInterval);
+          return;
+        }
+        const i = panels[index].getAttribute("data-index");
+        const sayText = document.getElementById(`say-${i}`).value.trim();
+        if (!sayText) {
+          index++;
+          speakNext();
+          return;
+        }
+
+        const utter = new SpeechSynthesisUtterance(sayText);
+        const voiceName = document.getElementById(`voice-${i}`).selectedOptions[0]?.getAttribute("data-name");
+        utter.voice = voices.find(v => v.name === voiceName);
+        utter.volume = parseFloat(document.getElementById(`volume-${i}`).value);
+        utter.pitch = parseFloat(document.getElementById(`pitch-${i}`).value);
+        utter.rate = parseFloat(document.getElementById(`rate-${i}`).value);
+
+        utter.onend = () => {
+          const delay = parseFloat(document.getElementById(`delay-${i}`).value) * 1000 || 0;
+          setTimeout(() => {
+            index++;
+            speakNext();
+          }, delay);
+        };
+
+        synth.speak(utter);
+      }
+
+      if (!synth.speaking) {
+        speakNext();
+      }
+    }
+
+    document.getElementById("addPanel").addEventListener("click", () => {
+      createPanel(panelCount++);
+    });
+
+    document.getElementById("playAll").addEventListener("click", playAllPanels);
+
+    document.getElementById("downloadBoard").addEventListener("click", () => {
+      const boardData = Array.from(document.querySelectorAll(".panel-wrapper")).map(panel => {
+        const i = panel.getAttribute("data-index");
+        return {
+          text: document.getElementById(`say-${i}`).value,
+          voice: document.getElementById(`voice-${i}`).selectedOptions[0]?.getAttribute("data-name"),
+          volume: document.getElementById(`volume-${i}`).value,
+          pitch: document.getElementById(`pitch-${i}`).value,
+          rate: document.getElementById(`rate-${i}`).value,
+          delay: document.getElementById(`delay-${i}`).value
+        };
+      });
+      const blob = new Blob([JSON.stringify(boardData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "voice-board.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    document.getElementById("uploadBoard").addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const boardData = JSON.parse(reader.result);
+          document.getElementById("panelContainer").innerHTML = "";
+          panelCount = 0;
+          boardData.forEach(data => {
+            createPanel(panelCount);
+            const i = panelCount++;
+            document.getElementById(`say-${i}`).value = data.text || "";
+            document.getElementById(`volume-${i}`).value = data.volume;
+            document.getElementById(`pitch-${i}`).value = data.pitch;
+            document.getElementById(`rate-${i}`).value = data.rate;
+            document.getElementById(`delay-${i}`).value = data.delay;
+            const setVoice = () => {
+              const voiceSelect = document.getElementById(`voice-${i}`);
+              if (voiceSelect.options.length === 0) {
+                setTimeout(setVoice, 100);
+                return;
+              }
+              for (let option of voiceSelect.options) {
+                if (option.getAttribute("data-name") === data.voice) {
+                  option.selected = true;
+                  break;
+                }
+              }
+            };
+            setVoice();
+          });
+        } catch {
+          alert("Invalid file format.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    if (synth.onvoiceschanged !== undefined) {
+      synth.onvoiceschanged = listVoices;
+    }
+
+    window.addEventListener("load", () => {
+      createPanel(panelCount++);
+      listVoices();
+    });
+  </script>
+
 <div style="text-align:center; margin-bottom:10px;">
   <button id="toggle-editors-btn" 
           style="background:#c00000; color:#fff; padding:10px 20px; 
